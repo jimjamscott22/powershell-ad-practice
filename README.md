@@ -48,6 +48,55 @@ Accounts are disabled, not deleted. Deleting is usually a separate step 30–90 
 
 `departures.csv` offboards two of the users the onboarding sample creates (`bokafor`, `csmith2`), plus one name that doesn't exist, to show the "not found" path.
 
+## Additional practice labs
+
+### Stale-account report (read-only Active Directory)
+
+Practice querying a specific OU, filtering on dates, and exporting objects to CSV. Run this from the repository folder after completing the lab setup below. Replace the search base if your lab uses a different domain or OU.
+
+```powershell
+$staff = 'OU=Staff,DC=lab,DC=local'
+$stale = .\Get-StaleADUsers.ps1 -SearchBase $staff -InactiveDays 90
+$stale | Format-Table SamAccountName, LastLogonDate, Reason -AutoSize
+$stale | Export-Csv .\stale-users.csv -NoTypeInformation
+```
+
+The report searches the selected OU and its children for enabled accounts. If there's no recorded logon, it uses the account's creation date so that newly created accounts aren't flagged immediately. `LastLogonDate` is based on a replicated timestamp and is approximate; use the report for review, not as a reason to disable an account automatically.
+
+**Check your work:** Compare the results for 30 and 90 days. In an unchanged directory, every account in the 90-day report should also appear in the 30-day report. A fresh lab may report no matches. Try a department OU as the search base and verify that accounts from sibling OUs aren't included.
+
+### Audit a departures CSV (offline)
+
+Practice `Import-Csv`, object pipelines, and input validation without AD or RSAT. The goal is to catch missing fields and duplicate usernames before the file goes anywhere near the offboarding script.
+
+1. Import `departures.csv` and count the rows.
+2. Use `Where-Object` and `[string]::IsNullOrWhiteSpace()` to find rows missing `SamAccountName` or `Reason`.
+3. Use `Group-Object -Property SamAccountName` and filter for groups with `Count` greater than 1.
+4. Check that the original sample has **3 rows, 0 missing-field rows, and 0 duplicate groups**. Then work on a copy: duplicate one row and add a different row with a blank reason. Verify that each check catches its intended problem.
+
+<details>
+<summary>Reference solution</summary>
+
+```powershell
+$rows = @(Import-Csv .\departures.csv)
+$missing = @($rows | Where-Object {
+    [string]::IsNullOrWhiteSpace($_.SamAccountName) -or
+    [string]::IsNullOrWhiteSpace($_.Reason)
+})
+$duplicates = @($rows | Group-Object -Property SamAccountName |
+    Where-Object { $_.Count -gt 1 })
+
+[pscustomobject]@{
+    TotalRows        = $rows.Count
+    MissingFieldRows = $missing.Count
+    DuplicateGroups  = $duplicates.Count
+}
+```
+
+</details>
+
+This checks the file, not the directory: the `nobody` row passes these checks even though it's intentionally absent from AD.
+
 ## Lab setup
 
 1. Install Windows Server (free evaluation) in Hyper-V or VirtualBox and promote it to a domain controller (e.g. `lab.local`).
@@ -60,6 +109,6 @@ Accounts are disabled, not deleted. Deleting is usually a separate step 30–90 
 - [ ] Add Marketing to the department table so Evan stops being skipped.
 - [x] **Offboarding:** disable a user, move them to a `Disabled` OU, strip their groups, log it.
 - [ ] **Undo offboarding:** read `offboarding-results.csv` and re-enable a user, restore their groups, and move them back.
-- [ ] **Stale accounts report:** users with `LastLogonDate` older than 90 days, exported to CSV.
+- [x] **Stale accounts report:** users with `LastLogonDate` older than 90 days, exported to CSV.
 - [ ] **Password-reset helper:** reset a user's password and unlock the account in one step.
 - [ ] **Group membership audit:** list members of every `GG-*` group to CSV.
